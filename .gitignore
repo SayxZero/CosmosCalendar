@@ -14,6 +14,10 @@
 .idea/
 *.user
 
+# Release packages of build-packages.bat: Build/Windows, Build/Android,
+# Build/Linux. They are made, not kept.
+/Build/
+
 # Builds started from the root (cmake -S Calendar -B build/planner, see
 # README.md) and stray CMake folders.
 /build/
