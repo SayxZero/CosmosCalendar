@@ -1,0 +1,8 @@
+[submodule "Calendar"]
+	path = Calendar
+	url = https://github.com/SayxZero/Calendar.git
+	branch = master
+[submodule "CalendarServer"]
+	path = CalendarServer
+	url = https://github.com/SayxZero/CalendarServer.git
+	branch = master

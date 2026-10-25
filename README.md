@@ -1,0 +1,62 @@
+# CosmosCalendar
+
+«Космос календарь» — календарь-планер для компьютера и телефона с
+необязательной синхронизацией через собственный сервер. Этот репозиторий —
+зонтичный: он собирает обе части в одну рабочую копию и держит документы,
+которые касаются их вместе.
+
+| Сабмодуль | Репозиторий | Что это |
+|---|---|---|
+| `Calendar/` | [SayxZero/Calendar](https://github.com/SayxZero/Calendar) | планер: события и задачи в одном окне, привычки, напоминания и будильник, виджеты Android; Qt 6 / C++17 для Windows, Linux и Android |
+| `CalendarServer/` | [SayxZero/CalendarServer](https://github.com/SayxZero/CalendarServer) | сервер синхронизации: аккаунты, обмен записями между устройствами, общие календари; консольная программа на Qt 6 для Windows и Linux |
+
+Планер работает и без сервера — сервер нужен только для аккаунтов,
+синхронизации между устройствами и совместного доступа к календарю.
+
+## Получить
+
+```bash
+git clone --recursive https://github.com/SayxZero/CosmosCalendar.git
+```
+
+В уже склонированной копии без сабмодулей:
+
+```bash
+git submodule update --init
+```
+
+Сабмодули следят за веткой `master` своих репозиториев; подтянуть их свежие
+версии — `git submodule update --remote`. Каждый можно клонировать и собирать
+и отдельно.
+
+## Собрать
+
+У каждой части своя сборка и свой README со всеми средами:
+
+- **планер** — [Calendar/README.md](Calendar/README.md), «Сборка»: батники для
+  Windows (`build-release.bat` — exe и APK одной командой), Qt Creator, CMake и
+  qmake, пакеты Debian/Ubuntu и Fedora, Android;
+- **сервер** — [CalendarServer/README.md](CalendarServer/README.md), «Сборка»:
+  `build-server.bat`, CMake и qmake, Debian/Ubuntu и Fedora, служба systemd.
+
+Коротко, на системе с Qt 6.4+ и CMake:
+
+```bash
+cmake -S Calendar -B build/planner -DCMAKE_BUILD_TYPE=Release
+cmake --build build/planner
+
+cmake -S CalendarServer -B build/server -DCMAKE_BUILD_TYPE=Release
+cmake --build build/server
+```
+
+## Документы
+
+| Файл | О чём |
+|---|---|
+| [DESDOC.md](DESDOC.md) | устройство системы: состав, протокол планера и сервера, данные, версии, развёртывание |
+| [ISSUES.md](ISSUES.md) | ошибки и грабли, на которые уже наступали, по темам |
+| [PACKAGING.md](PACKAGING.md) | план установочных пакетов (на будущее) |
+| [CLAUDE.md](CLAUDE.md) | заметки для Claude Code: порядок коммитов в сабмодулях, правила проверок, окружение |
+
+Внутреннее устройство частей — в `Calendar/DesDoc.md` и
+`CalendarServer/DesDoc.md`.

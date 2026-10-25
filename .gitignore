@@ -1,0 +1,29 @@
+# The umbrella holds documents and two submodules; everything else in its root
+# is local. Each submodule ignores its own build, data and IDE files.
+
+# Working folders of the coding tools: scratch worktrees (a full second copy of
+# the project) and machine-local settings.
+.claude/
+.kilo/
+.kilocode/
+
+# Visual Studio keeps its own folder beside what it opened, and it opens the
+# workspace root; Qt Creator and VS Code do the same.
+.vs/
+.vscode/
+.idea/
+*.user
+
+# Builds started from the root (cmake -S Calendar -B build/planner, see
+# README.md) and stray CMake folders.
+/build/
+/build-*/
+CMakeFiles/
+
+# A bundle of an old history and similar backups.
+*.bundle
+
+# OS junk
+.DS_Store
+Thumbs.db
+Desktop.ini
