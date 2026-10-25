@@ -18,17 +18,24 @@
 
     The password of the release key is asked for once, at the start, hidden
     (Ctrl+V or Shift+Insert paste it from the clipboard), and checked with
-    keytool before anything is built. COSMOS_KEYSTORE_PASS skips the question.
+    keytool before anything is built. COSMOS_KEYSTORE_PASS skips the question,
+    -SkipApk the APK with its key altogether.
 
         powershell -ExecutionPolicy Bypass -File build-packages.ps1
+        powershell -ExecutionPolicy Bypass -File build-packages.ps1 -SkipApk
 
 .PARAMETER Keystore
     The release key; COSMOS_KEYSTORE or %USERPROFILE%\.android\cosmos-release.jks.
+
+.PARAMETER SkipApk
+    Everything but the APK: no release key, no password. Build\Android is left
+    as it was, with the APK of an earlier run if there is one.
 #>
 [CmdletBinding()]
 param(
     [string]$Keystore = $(if ($env:COSMOS_KEYSTORE) { $env:COSMOS_KEYSTORE }
-                          else { Join-Path $env:USERPROFILE '.android\cosmos-release.jks' })
+                          else { Join-Path $env:USERPROFILE '.android\cosmos-release.jks' }),
+    [switch]$SkipApk
 )
 
 Set-StrictMode -Version 2
@@ -154,12 +161,20 @@ function Get-LogProblems {
 }
 
 function Get-TestTotals {
+    # A step may run several test programs (the server: tst_server and
+    # tst_admin); their totals add up.
     param([string]$Log)
-    $line = Read-Log $Log | Where-Object { $_ -match 'Totals: (\d+) passed, (\d+) failed, (\d+) skipped' } | Select-Object -Last 1
-    if (-not $line) { return '' }
-    $null = $line -match 'Totals: (\d+) passed, (\d+) failed, (\d+) skipped'
-    $text = "тесты: пройдено $($Matches[1])"
-    if ([int]$Matches[3] -gt 0) { $text += ", пропущено $($Matches[3])" }
+    $lines = @(Read-Log $Log | Where-Object { $_ -match 'Totals: (\d+) passed, (\d+) failed, (\d+) skipped' })
+    if ($lines.Count -eq 0) { return '' }
+    $passed = 0
+    $skipped = 0
+    foreach ($line in $lines) {
+        $null = $line -match 'Totals: (\d+) passed, (\d+) failed, (\d+) skipped'
+        $passed += [int]$Matches[1]
+        $skipped += [int]$Matches[3]
+    }
+    $text = "тесты: пройдено $passed"
+    if ($skipped -gt 0) { $text += ", пропущено $skipped" }
     $text
 }
 
@@ -248,6 +263,24 @@ function Get-ProjectVersion {
     $Matches[1]
 }
 
+function Clear-BuildFolders {
+    # Empties the folders of Build\ that this run fills again, and returns why
+    # it could not - empty when it could. A package still open elsewhere (an
+    # installer started from Build\Windows) holds its file, and what was
+    # deleted before it stays deleted.
+    param([string]$Build, [string[]]$Folders)
+    foreach ($folder in $Folders) {
+        $dir = Join-Path $Build $folder
+        try {
+            if (Test-Path $dir) { Remove-Item -Recurse -Force $dir -ErrorAction Stop }
+            $null = New-Item -ItemType Directory -Force $dir
+        } catch {
+            return $_.Exception.Message
+        }
+    }
+    return ''
+}
+
 function Invoke-Main {
     $started = [Diagnostics.Stopwatch]::StartNew()
     $planner = Join-Path $Root 'Calendar'
@@ -266,29 +299,44 @@ function Invoke-Main {
     if (-not (Test-Path (Join-Path $wix 'candle.exe'))) { $problems += "не найден WiX 3: $wix" }
     $jdk = if ($env:PLANNER_JDK) { $env:PLANNER_JDK } else { 'C:\Program Files\Java\jdk-17' }
     $keytool = Join-Path $jdk 'bin\keytool.exe'
-    if (-not (Test-Path $keytool)) { $problems += "не найден keytool: $keytool (PLANNER_JDK)" }
-    if (-not (Test-Path $Keystore)) { $problems += "не найден ключ выпуска: $Keystore (COSMOS_KEYSTORE)" }
+    # Without the APK neither the key nor keytool, which checks its password, is needed.
+    if (-not $SkipApk) {
+        if (-not (Test-Path $keytool)) { $problems += "не найден keytool: $keytool (PLANNER_JDK)" }
+        if (-not (Test-Path $Keystore)) { $problems += "не найден ключ выпуска: $Keystore (COSMOS_KEYSTORE)" }
+    }
     if ($problems.Count -eq 0) {
         $plannerVersion = Get-ProjectVersion "$planner\CMakeLists.txt"
         $serverVersion = Get-ProjectVersion "$server\CMakeLists.txt"
-        Write-StepLine -State ok -Title 'Проверка окружения' -Detail "планер $plannerVersion, сервер $serverVersion"
+        $versions = "планер $plannerVersion, сервер $serverVersion"
+        if ($SkipApk) { $versions += ', без APK' }
+        Write-StepLine -State ok -Title 'Проверка окружения' -Detail $versions
     } else {
         Write-StepLine -State fail -Title 'Проверка окружения'
         Write-Problem $problems
         return 1
     }
 
-    foreach ($platform in 'Windows', 'Android', 'Linux', 'logs') {
-        $dir = Join-Path $Build $platform
-        if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
-        $null = New-Item -ItemType Directory -Force $dir
+    # The APK of an earlier run stays when this one does not build a new one:
+    # it cost a password.
+    $wiped = if ($SkipApk) { 'Windows', 'Linux', 'logs' } else { 'Windows', 'Android', 'Linux', 'logs' }
+    $null = New-Item -ItemType Directory -Force (Join-Path $Build 'Android')
+    $busy = Clear-BuildFolders $Build $wiped
+    if ($busy) {
+        Write-StepLine -State fail -Title 'Очистка Build'
+        Write-Problem @($busy,
+            'Файл держит другая программа - обычно установщик: Windows Installer',
+            'отпускает MSI через несколько минут после установки. Закройте её и запустите снова.')
+        return 1
     }
     Remove-Item -Force (Join-Path $Build 'SHA256SUMS.txt') -ErrorAction SilentlyContinue
 
     # ---- the release key ----------------------------------------------
     $password = $env:COSMOS_KEYSTORE_PASS
     $keyName = Split-Path $Keystore -Leaf
-    if ($password) {
+    if ($SkipApk) {
+        $password = $null
+        Write-StepLine -State skip -Title 'Ключ выпуска' -Detail 'не нужен без APK (-SkipApk)'
+    } elseif ($password) {
         if (-not (Test-KeystorePassword $keytool $Keystore $password)) {
             Write-StepLine -State fail -Title 'Ключ выпуска' -Detail 'пароль из COSMOS_KEYSTORE_PASS не подходит'
             return 1
@@ -312,7 +360,7 @@ function Invoke-Main {
             return 1
         }
     }
-    Write-StepLine -State ok -Title 'Ключ выпуска' -Detail $keyName
+    if (-not $SkipApk) { Write-StepLine -State ok -Title 'Ключ выпуска' -Detail $keyName }
 
     # ---- the builds -----------------------------------------------------
     $serverEnv = @{ SERVER_BUILD = 'build-release' }
@@ -324,7 +372,7 @@ function Invoke-Main {
         @{ Title = 'Планер: MSI и setup.exe'; Key = 'planner-installers'; Dir = $planner
            Command = '"' + "$planner\build-installer.bat" + '" -noui -skipbuild -out "' + $windows + '"' },
         @{ Title = 'Планер: APK для Android'; Key = 'planner-apk'; Dir = $planner; Env = $apkEnv; Apk = $true
-           Command = '"' + "$planner\build-apk.bat" + '" -noui' },
+           Skip = [bool]$SkipApk; Command = '"' + "$planner\build-apk.bat" + '" -noui' },
         @{ Title = 'Сервер: сборка и тесты'; Key = 'server-build'; Dir = $server; Env = $serverEnv; Tests = $true
            Command = '"' + "$server\build-server.bat" + '" -noui' },
         @{ Title = 'Сервер: MSI и setup.exe'; Key = 'server-installers'; Dir = $server; Env = $serverEnv
@@ -333,7 +381,16 @@ function Invoke-Main {
 
     $n = 0
     foreach ($step in $steps) {
+        # The number is counted for a skipped step too: the logs of the others
+        # keep their names whichever steps run.
         $n++
+        if ($step.ContainsKey('Skip') -and $step.Skip) {
+            $kept = @(Get-ChildItem (Join-Path $Build 'Android') -Filter '*.apk' -File | Sort-Object Name)
+            $note = if ($kept.Count -gt 0) { "-SkipApk; в Build\Android прежний $($kept[-1].Name)" }
+                    else { '-SkipApk; Build\Android пуст' }
+            Write-StepLine -State skip -Title $step.Title -Detail $note
+            continue
+        }
         $log = Join-Path $Logs ('{0:00}-{1}.log' -f $n, $step.Key)
         $environment = if ($step.ContainsKey('Env')) { $step.Env } else { @{} }
         $run = Invoke-Step -Title $step.Title -Command $step.Command -Log $log `

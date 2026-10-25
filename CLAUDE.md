@@ -11,7 +11,7 @@ workspace.
 | Папка | Репозиторий | Что это |
 |---|---|---|
 | `Calendar/` | [SayxZero/Calendar](https://github.com/SayxZero/Calendar) | планер: Qt 6 / C++17, Windows, Linux, Android |
-| `CalendarServer/` | [SayxZero/CalendarServer](https://github.com/SayxZero/CalendarServer) | сервер синхронизации: Qt 6 Core, Network, Sql; Windows и Linux |
+| `CalendarServer/` | [SayxZero/CalendarServer](https://github.com/SayxZero/CalendarServer) | сервер синхронизации (Qt 6 Core, Network, Sql; служба Windows и Linux) и его админ-панель (Qt Widgets) |
 
 Здесь лежит только то, что касается обоих сразу:
 
@@ -55,6 +55,7 @@ README: о самом проекте подробно, о соседнем — �
 
 ```bash
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\\Prog\\Calendar\\build-packages.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\\Prog\\Calendar\\build-packages.ps1" -SkipApk
 cmd //c "D:\\Prog\\Calendar\\build-packages.bat" -noui      # то же с полным выводом
 ```
 
@@ -69,11 +70,15 @@ cmd //c "D:\\Prog\\Calendar\\build-packages.bat" -noui      # то же с по�
 Файл — UTF-8 **с BOM**: без него PowerShell 5.1 читает кириллицу как ANSI.
 
 Собирает в `Build/` (в `.gitignore`): `Build/Windows` — MSI и setup.exe
-планера и сервера (`build-installer.bat` каждого проекта, WiX 3 из `%WIX%`),
+планера и сервера с админ-панелью (`build-installer.bat` каждого проекта,
+WiX 3 из `%WIX%`),
 `Build/Android` — APK, `Build/Linux` — пока записка-заглушка,
 `Build/SHA256SUMS.txt`. Исходники пакетов — в `packaging/` проектов, здесь
 только порядок их сборки.
 
+- **`-SkipApk`** (`-skipapk` у батника) — всё, кроме APK: без ключа и пароля,
+  `Build\Android` не очищается, прежний APK остаётся. Этим режимом агент и
+  проверяет скрипт пакетов целиком — пароль ему не нужен.
 - **APK подписывается ключом выпуска** `%USERPROFILE%\.android\cosmos-release.jks`
   (`COSMOS_KEYSTORE`), пароль — `COSMOS_KEYSTORE_PASS` или скрытый вопрос
   при запуске. **Агент пароль не вводит и не спрашивает**: собрать пакеты с
@@ -87,7 +92,16 @@ cmd //c "D:\\Prog\\Calendar\\build-packages.bat" -noui      # то же с по�
   просит права администратора. Проверять — административной распаковкой
   (`msiexec /a <msi> /qn TARGETDIR=<временная папка>`) и запуском распакованного
   exe без Qt в `PATH` с `--data-dir` во временную папку; окна установщиков —
-  снимком (PrintWindow) первой страницы и «Отменой».
+  снимком (PrintWindow) первой страницы и «Отменой». Таблицы MSI (служба,
+  права, порядок действий) читаются через COM `WindowsInstaller.Installer`.
+- **Службу сервера на этой машине не ставить и не запускать** — ни
+  установщиком, ни `sc create`: это системная настройка, и она за владельцем.
+  Код службы проверяет владелец установкой; агент — тем, что `--service` вне
+  диспетчера служб отказывается, а всё остальное работает и в консоли.
+- **Админ-панель проверяется на тестовом сервере**: `CalendarServerAdmin.exe
+  --config <server.ini тестовой папки>` (или `--data-dir`) — без службы, без
+  UAC и мимо настоящей базы; `--grab <папка>` снимает все страницы, вкладки
+  аккаунта и диалоги в PNG, не показывая окна на экране.
 
 ## Правила проверок
 
@@ -102,7 +116,7 @@ cmd //c "D:\\Prog\\Calendar\\build-packages.bat" -noui      # то же с по�
   данных (`run-server.bat -p 8766 -d <папка>`).
 - **Задача в планере заканчивается релизными сборками**: `release/CalendarPlanner.exe`
   и подписанный APK собраны, тесты прошли (`Calendar/CLAUDE.md`, «Релизные
-  сборки»). У сервера — его 22 теста.
+  сборки»). У сервера — его 27 тестов и 10 тестов админ-панели (`tst_admin`).
 
 ## Грабли
 
@@ -130,8 +144,14 @@ CosmosCalendar). История прежнего общего репозитор
 Данные приложения: `%APPDATA%\CalendarPlanner\CalendarPlanner\` (`planner.db`,
 `settings.ini`).
 
-**Сервер на этом ПК.** `D:\Prog\Calendar\CalendarServer\build\CalendarServer.exe`,
-порт 8765, адрес в домашней сети `192.168.0.146` (Ethernet). Телефон видит его
+**Сервер на этом ПК.** Служба `CosmosCalendarServer` (с 25.10.2026, версия 1.1
+из MSI): `C:\Program Files\CalendarServer\CalendarServer.exe`, LocalService, база,
+настройки и журнал — в `%ProgramData%\CalendarPlanner\CalendarServer`, куда без
+прав администратора не заглянуть (агенту — тоже: состояние — `Get-Service`,
+ответ — `/api/ping`). Порт 8765, адрес в домашней сети `192.168.0.146`
+(Ethernet). Управляет ею админ-панель. Прежняя база консольного сервера 1.0,
+`%APPDATA%\CalendarPlanner\CalendarServer\server.db`, больше не используется:
+служба взяла её копию при установке. Телефон видит его
 по Wi-Fi напрямую, брандмауэр пропускает. Если связи нет — `adb reverse tcp:8765
 tcp:8765` и адрес `127.0.0.1:8765` на телефоне.
 

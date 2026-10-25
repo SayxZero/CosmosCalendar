@@ -12,6 +12,9 @@ rem      Build\SHA256SUMS.txt                         checksums of all of the ab
 rem
 rem      build-packages.bat            build, waiting for a key press at the end
 rem      build-packages.bat -noui      return at once (for scripts)
+rem      build-packages.bat -skipapk   everything but the APK: no release key,
+rem                                    no password; Build\Android keeps the
+rem                                    APK of an earlier run
 rem
 rem  Each project builds its own packages (Calendar\build-installer.bat,
 rem  Calendar\build-apk.bat, CalendarServer\build-installer.bat); this script
@@ -35,7 +38,11 @@ cd /d "%~dp0"
 set "ROOT=%~dp0"
 
 set "NOUI="
-for %%A in (%*) do if /i "%%~A"=="-noui" set "NOUI=1"
+set "SKIPAPK="
+for %%A in (%*) do (
+    if /i "%%~A"=="-noui" set "NOUI=1"
+    if /i "%%~A"=="-skipapk" set "SKIPAPK=1"
+)
 
 set "BUILD=%ROOT%Build"
 
@@ -49,6 +56,9 @@ if not exist "%ROOT%CalendarServer\build-installer.bat" (
 )
 
 rem ---- the release key --------------------------------------------------
+rem Not needed without the APK. A goto rather than a block: inside one, the
+rem default of COSMOS_KEYSTORE would not be seen by the lines after it.
+if defined SKIPAPK goto :keydone
 if not defined COSMOS_KEYSTORE set "COSMOS_KEYSTORE=%USERPROFILE%\.android\cosmos-release.jks"
 if not exist "%COSMOS_KEYSTORE%" (
     echo [ОШИБКА] Не найден ключ выпуска: "%COSMOS_KEYSTORE%"
@@ -60,6 +70,9 @@ if not defined COSMOS_KEYSTORE_PASS (
     echo [ОШИБКА] Пароль ключа выпуска не введён.
     goto :fail
 )
+:keydone
+set "APKNOTE=%COSMOS_KEYSTORE%"
+if defined SKIPAPK set "APKNOTE=не собирается, -skipapk"
 
 call :version "%ROOT%Calendar\CMakeLists.txt" PLANNER_VERSION || goto :fail
 call :version "%ROOT%CalendarServer\CMakeLists.txt" SERVER_VERSION || goto :fail
@@ -68,14 +81,18 @@ echo.
 echo ############################################################
 echo #   Пакеты Космос календаря
 echo #   Планер %PLANNER_VERSION%, сервер %SERVER_VERSION%
-echo #   Ключ APK: %COSMOS_KEYSTORE%
+echo #   APK: %APKNOTE%
 echo #   Начало: %DATE% %TIME:~0,8%
 echo ############################################################
 
-for %%P in (Windows Android Linux) do (
+rem The APK of an earlier run stays when this one builds none: it cost a password.
+set "WIPE=Windows Android Linux"
+if defined SKIPAPK set "WIPE=Windows Linux"
+for %%P in (%WIPE%) do (
     if exist "%BUILD%\%%P" rmdir /s /q "%BUILD%\%%P"
     mkdir "%BUILD%\%%P" || goto :fail
 )
+if not exist "%BUILD%\Android" mkdir "%BUILD%\Android"
 del /q "%BUILD%\SHA256SUMS.txt" 2>nul
 
 rem ---- 1. planner, Windows ----------------------------------------------
@@ -94,6 +111,10 @@ rem release key instead of the debug one of everyday builds.
 title Пакеты: планер, Android
 echo.
 echo ======================= [2/4] Планер, Android =======================
+if defined SKIPAPK (
+    echo       Пропущено: -skipapk. В Build\Android остаётся то, что там было.
+    goto :apkdone
+)
 set "PLANNER_KEYSTORE=%COSMOS_KEYSTORE%"
 set "PLANNER_KEYSTORE_PASS=%COSMOS_KEYSTORE_PASS%"
 call "%ROOT%Calendar\build-apk.bat" -noui
@@ -103,6 +124,7 @@ if errorlevel 1 (
 )
 copy /y "%ROOT%Calendar\release\CalendarPlanner-signed.apk" ^
     "%BUILD%\Android\CosmosCalendar-%PLANNER_VERSION%.apk" >nul || goto :fail
+:apkdone
 
 rem ---- 3. server, Windows -----------------------------------------------
 title Пакеты: сервер, Windows

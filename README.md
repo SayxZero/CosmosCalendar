@@ -8,7 +8,7 @@
 | Сабмодуль | Репозиторий | Что это |
 |---|---|---|
 | `Calendar/` | [SayxZero/Calendar](https://github.com/SayxZero/Calendar) | планер: события и задачи в одном окне, привычки, напоминания и будильник, виджеты Android; Qt 6 / C++17 для Windows, Linux и Android |
-| `CalendarServer/` | [SayxZero/CalendarServer](https://github.com/SayxZero/CalendarServer) | сервер синхронизации: аккаунты, обмен записями между устройствами, общие календари; консольная программа на Qt 6 для Windows и Linux |
+| `CalendarServer/` | [SayxZero/CalendarServer](https://github.com/SayxZero/CalendarServer) | сервер синхронизации: аккаунты, обмен записями между устройствами, общие календари; служба на Qt 6 для Windows и Linux и админ-панель к ней |
 
 Планер работает и без сервера — сервер нужен только для аккаунтов,
 синхронизации между устройствами и совместного доступа к календарю.
@@ -37,7 +37,8 @@ git submodule update --init
   Windows (`build-release.bat` — exe и APK одной командой), Qt Creator, CMake и
   qmake, пакеты Debian/Ubuntu и Fedora, Android;
 - **сервер** — [CalendarServer/README.md](CalendarServer/README.md), «Сборка»:
-  `build-server.bat`, CMake и qmake, Debian/Ubuntu и Fedora, служба systemd.
+  `build-server.bat` (сервер и админ-панель), CMake и qmake, Debian/Ubuntu и
+  Fedora, служба systemd.
 
 Коротко, на системе с Qt 6.4+ и CMake:
 
@@ -59,7 +60,8 @@ cmake --build build/server
 экране показывает только этапы — с анимацией, пока этап идёт, и итогом
 (журналы этапов — в `Build/logs`). Пароль ключа выпуска спрашивается в
 начале, скрытым вводом, вставляется из буфера обмена (Ctrl+V) и сразу
-проверяется. Тот же набор без анимации, с полным выводом — `build-packages.bat`.
+проверяется; `-SkipApk` собирает всё, кроме APK, и пароль не спрашивает. Тот
+же набор без анимации, с полным выводом — `build-packages.bat`.
 
 Что получается: установщики Windows (MSI и setup.exe планера и сервера,
 WiX 3), APK, подписанный ключом выпуска
