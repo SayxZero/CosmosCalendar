@@ -6,3 +6,11 @@
 	path = CalendarServer
 	url = https://github.com/SayxZero/CalendarServer.git
 	branch = master
+[submodule "CalendarWeb"]
+	path = CalendarWeb
+	url = https://github.com/SayxZero/CalendarWeb.git
+	branch = master
+[submodule "CalendarWebServer"]
+	path = CalendarWebServer
+	url = https://github.com/SayxZero/CalendarWebServer.git
+	branch = master
