@@ -9,8 +9,12 @@
         Build\Windows\CosmosCalendar-<v>-x64.msi, -setup.exe   planner
         Build\Windows\CalendarServer-<v>-x64.msi, -setup.exe   sync server
         Build\Android\CosmosCalendar-<v>.apk                   signed with the release key
-        Build\Linux\                                           not built yet (Docker, later)
+        Build\Linux\CalendarServer-<v>-ubuntu26.04-x64.tar.gz  sync server (build-linux.ps1)
+        Build\Linux\CalendarWebServer-<v>-linux-x64.tar.gz     site server with the site
         Build\SHA256SUMS.txt
+
+    Linux is built in Docker Engine of a WSL distribution by build-linux.ps1;
+    without Docker the step is skipped with a note in Build\Linux.
 
     Each step runs the build script of its project with the whole output going
     into Build\logs\<step>.log; the console shows the step, a spinner while it
@@ -30,12 +34,16 @@
 .PARAMETER SkipApk
     Everything but the APK: no release key, no password. Build\Android is left
     as it was, with the APK of an earlier run if there is one.
+
+.PARAMETER SkipLinux
+    Without the Linux builds in Docker.
 #>
 [CmdletBinding()]
 param(
     [string]$Keystore = $(if ($env:COSMOS_KEYSTORE) { $env:COSMOS_KEYSTORE }
                           else { Join-Path $env:USERPROFILE '.android\cosmos-release.jks' }),
-    [switch]$SkipApk
+    [switch]$SkipApk,
+    [switch]$SkipLinux
 )
 
 Set-StrictMode -Version 2
@@ -162,17 +170,31 @@ function Get-LogProblems {
 
 function Get-TestTotals {
     # A step may run several test programs (the server: tst_server and
-    # tst_admin); their totals add up.
-    param([string]$Log)
-    $lines = @(Read-Log $Log | Where-Object { $_ -match 'Totals: (\d+) passed, (\d+) failed, (\d+) skipped' })
-    if ($lines.Count -eq 0) { return '' }
+    # tst_admin) and leave several reports; their totals add up. QtTest ends
+    # with "Totals: 49 passed, 0 failed, 1 skipped"; dotnet test with
+    # "Passed!  - Failed: 0, Passed: 24, ..." or, at the normal verbosity,
+    # with lines of their own: "Total tests: 24", "Passed: 23", "Skipped: 1".
+    param([string[]]$Log)
+    $found = $false
     $passed = 0
     $skipped = 0
-    foreach ($line in $lines) {
-        $null = $line -match 'Totals: (\d+) passed, (\d+) failed, (\d+) skipped'
-        $passed += [int]$Matches[1]
-        $skipped += [int]$Matches[3]
+    foreach ($line in @($Log | ForEach-Object { Read-Log $_ })) {
+        if ($line -match 'Totals: (\d+) passed, (\d+) failed, (\d+) skipped') {
+            $passed += [int]$Matches[1]
+            $skipped += [int]$Matches[3]
+            $found = $true
+        } elseif ($line -match 'Failed:\s*(\d+), Passed:\s*(\d+), Skipped:\s*(\d+), Total:') {
+            $passed += [int]$Matches[2]
+            $skipped += [int]$Matches[3]
+            $found = $true
+        } elseif ($line -match '^\s*Passed:\s*(\d+)\s*$') {
+            $passed += [int]$Matches[1]
+            $found = $true
+        } elseif ($line -match '^\s*Skipped:\s*(\d+)\s*$') {
+            $skipped += [int]$Matches[1]
+        }
     }
+    if (-not $found) { return '' }
     $text = "тесты: пройдено $passed"
     if ($skipped -gt 0) { $text += ", пропущено $skipped" }
     $text
@@ -419,15 +441,37 @@ function Invoke-Main {
     $password = $null
     $apkEnv = $null
 
-    # ---- Linux: a stub ----------------------------------------------------
-    Set-Content -Path (Join-Path $Build 'Linux\README.txt') -Encoding UTF8 -Value @(
-        'Пакеты Linux пока не собираются: сборка будет настроена в Docker.',
-        'Подробнее - Calendar\packaging\linux и CalendarServer\packaging\linux.')
-    Write-StepLine -State skip -Title 'Linux' -Detail 'сборка в Docker ещё не настроена'
+    # ---- Linux: the servers in Docker -------------------------------------
+    # build-linux.ps1 shows its own steps in its log; here the step is one.
+    # Without Docker in WSL (code 3) the step is skipped, not failed: the
+    # packages of Windows do not need it. The planner for Linux is not built yet.
+    $linux = Join-Path $Build 'Linux'
+    $linuxTitle = 'Linux: серверы в Docker'
+    $linuxNote = @('Пакеты Linux в этот раз не собирались: {0}.',
+        'Сборка - build-linux.ps1 (Docker в WSL), подробнее - PACKAGING.md.')
+    if ($SkipLinux) {
+        Set-Content -Path (Join-Path $linux 'README.txt') -Encoding UTF8 -Value ($linuxNote -f '-SkipLinux')
+        Write-StepLine -State skip -Title $linuxTitle -Detail '-SkipLinux'
+    } else {
+        $log = Join-Path $Logs ('{0:00}-linux.log' -f ($n + 1))
+        $run = Invoke-Step -Title $linuxTitle -Log $log `
+            -Command ('powershell -NoProfile -ExecutionPolicy Bypass -File "' + "$Root\build-linux.ps1" + '"')
+        if ($run.Code -eq 3) {
+            Set-Content -Path (Join-Path $linux 'README.txt') -Encoding UTF8 -Value ($linuxNote -f 'нет Docker в WSL')
+            Write-StepLine -State skip -Title $linuxTitle -Detail 'нет Docker в WSL (PACKAGING.md)'
+        } elseif (-not $run.Ok) {
+            Write-StepLine -State fail -Title $linuxTitle -Elapsed $run.Elapsed
+            Write-Problem (@(Get-LogProblems $log) + "журнал: $log")
+            return 1
+        } else {
+            $reports = @(Get-ChildItem (Join-Path $linux 'tests') -Filter '*.txt' -File | ForEach-Object { $_.FullName })
+            Write-StepLine -State ok -Title $linuxTitle -Elapsed $run.Elapsed -Detail (Get-TestTotals $reports)
+        }
+    }
 
     # ---- checksums --------------------------------------------------------
-    $sums = foreach ($platform in 'Windows', 'Android') {
-        Get-ChildItem (Join-Path $Build $platform) -File | Sort-Object Name | ForEach-Object {
+    $sums = foreach ($platform in 'Windows', 'Android', 'Linux') {
+        Get-ChildItem (Join-Path $Build $platform) -File | Where-Object Name -ne 'README.txt' | Sort-Object Name | ForEach-Object {
             '{0}  {1}/{2}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $platform, $_.Name
         }
     }
@@ -438,9 +482,9 @@ function Invoke-Main {
     $total = $started.Elapsed
     Write-Host ''
     Write-Host ('  Готово за {0}:{1:00}. Пакеты в {2}:' -f [int][Math]::Floor($total.TotalMinutes), $total.Seconds, $Build) -ForegroundColor Green
-    foreach ($platform in 'Windows', 'Android') {
-        Get-ChildItem (Join-Path $Build $platform) -File | Sort-Object Name | ForEach-Object {
-            Write-Host ('    {0,-9} {1,-36} {2,6:N1} МБ' -f $platform, $_.Name, ($_.Length / 1MB))
+    foreach ($platform in 'Windows', 'Android', 'Linux') {
+        Get-ChildItem (Join-Path $Build $platform) -File | Where-Object Name -ne 'README.txt' | Sort-Object Name | ForEach-Object {
+            Write-Host ('    {0,-9} {1,-44} {2,6:N1} МБ' -f $platform, $_.Name, ($_.Length / 1MB))
         }
     }
     Write-Host ''

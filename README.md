@@ -76,9 +76,11 @@ node --test "CalendarWeb/tests/*.test.js"                     # тесты са�
 
 Что получается: установщики Windows (MSI и setup.exe планера и сервера,
 WiX 3), APK, подписанный ключом выпуска
-(`%USERPROFILE%\.android\cosmos-release.jks`), и `SHA256SUMS.txt`. Пакеты Linux пока не
-собираются — их сборка будет в Docker. Подробности — в
-[PACKAGING.md](PACKAGING.md).
+(`%USERPROFILE%\.android\cosmos-release.jks`), архивы сервера и сайта для
+Linux (Ubuntu 26.04) и `SHA256SUMS.txt`. Linux собирается в Docker Engine
+внутри WSL — `build-linux.ps1`, отдельно или этапом `build-packages.ps1`
+(`-SkipLinux` — без него); планера для Linux в пакетах пока нет.
+Подробности и установка Docker — в [PACKAGING.md](PACKAGING.md).
 
 ## Документы
 

@@ -89,9 +89,19 @@ cmd //c "D:\\Prog\\Calendar\\build-packages.bat" -noui      # то же с по�
 Собирает в `Build/` (в `.gitignore`): `Build/Windows` — MSI и setup.exe
 планера и сервера с админ-панелью (`build-installer.bat` каждого проекта,
 WiX 3 из `%WIX%`),
-`Build/Android` — APK, `Build/Linux` — пока записка-заглушка,
-`Build/SHA256SUMS.txt`. Исходники пакетов — в `packaging/` проектов, здесь
-только порядок их сборки.
+`Build/Android` — APK, `Build/Linux` — архивы сервера и сайта для Ubuntu
+26.04 (`build-linux.ps1`, ниже), `Build/SHA256SUMS.txt`. Исходники пакетов —
+в `packaging/` проектов, здесь только порядок их сборки.
+
+- **Linux — `build-linux.ps1`** (его же зовёт `build-packages.ps1`;
+  `-SkipLinux` — без него): Docker Engine в WSL-дистрибутиве `Ubuntu-26.04`,
+  `packaging/linux/Dockerfile` сервера и бэкенда сайта — сборка, тесты
+  (`tst_server`, `tst_bench`, `tst_admin`, `dotnet test`) и образы; затем
+  образ сервера запускается и отвечает на `/api/ping` (из Windows —
+  `127.0.0.1:8767`, сайт — `8768`), а тесты сайта идут ещё раз против него.
+  Код 3 — Docker в WSL нет. Docker из PowerShell —
+  `wsl -d Ubuntu-26.04 docker …`; путь `D:\…` там — `/mnt/d/…`. Устройство и
+  установка — `PACKAGING.md`, «Linux: Docker в WSL».
 
 - **`-SkipApk`** (`-skipapk` у батника) — всё, кроме APK: без ключа и пароля,
   `Build\Android` не очищается, прежний APK остаётся. Этим режимом агент и
@@ -172,6 +182,8 @@ CosmosCalendar). История прежнего общего репозитор
 | JDK | `C:\Program Files\Java\jdk-17` — Gradle из Qt 6.5 не работает с JDK 21+ |
 | .NET | SDK 10.0.403 (бэкенд сайта); пакеты тестов — из локального кэша NuGet |
 | Node.js | 24 — только тесты сайта (`node --test`), пакетов npm нет |
+| WSL | 3.0.3, дистрибутив `Ubuntu-26.04` (пользователь `gnome`) на `N:\WSL\Ubuntu-26.04` |
+| Docker | Engine 29.1 и buildx 0.30 внутри `Ubuntu-26.04` (`docker.io` из архива Ubuntu), без Docker Desktop |
 
 Данные приложения: `%APPDATA%\CalendarPlanner\CalendarPlanner\` (`planner.db`,
 `settings.ini`).
@@ -186,6 +198,16 @@ CosmosCalendar). История прежнего общего репозитор
 служба взяла её копию при установке. Телефон видит его
 по Wi-Fi напрямую, брандмауэр пропускает. Если связи нет — `adb reverse tcp:8765
 tcp:8765` и адрес `127.0.0.1:8765` на телефоне.
+
+**WSL и Docker.** Дистрибутив `Ubuntu-26.04` с Docker Engine внутри —
+только для Linux-сборок (`build-linux.ps1`); его виртуальный диск — на `N:`
+(SSD, места много), не на `C:`. Агент работает с ним сам: `docker` — от
+пользователя по умолчанию, настройка дистрибутива — `wsl -u root`, без
+пароля. В Windows стоят VPN (`happ-xray`, Radmin VPN), и DNS-посредник WSL
+на шлюзе молчит, поэтому в `/etc/resolv.conf` дистрибутива прописаны
+8.8.8.8 и 8.8.4.4 (`generateResolvConf=false` в `/etc/wsl.conf`). Порт,
+опубликованный контейнером, WSL пробрасывает на `127.0.0.1` Windows:
+контейнерам — порты от 8766, **не 8765**, где боевая служба.
 
 **Тестовый телефон.** Подключён по USB (`adb devices`), Android 13. Экран
 блокировки без пароля: если аппарат спит, `adb shell input keyevent

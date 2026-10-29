@@ -7,7 +7,8 @@ rem      Build\Windows\CosmosCalendar-<v>-setup.exe   planner, setup.exe
 rem      Build\Windows\CalendarServer-<v>-x64.msi     sync server, Windows Installer
 rem      Build\Windows\CalendarServer-<v>-setup.exe   sync server, setup.exe
 rem      Build\Android\CosmosCalendar-<v>.apk         planner, signed with the release key
-rem      Build\Linux\                                 not built yet (Docker, later)
+rem      Build\Linux\CalendarServer-<v>-ubuntu26.04-x64.tar.gz   sync server
+rem      Build\Linux\CalendarWebServer-<v>-linux-x64.tar.gz      site server
 rem      Build\SHA256SUMS.txt                         checksums of all of the above
 rem
 rem      build-packages.bat            build, waiting for a key press at the end
@@ -15,6 +16,7 @@ rem      build-packages.bat -noui      return at once (for scripts)
 rem      build-packages.bat -skipapk   everything but the APK: no release key,
 rem                                    no password; Build\Android keeps the
 rem                                    APK of an earlier run
+rem      build-packages.bat -skiplinux without the Linux builds in Docker
 rem
 rem  Each project builds its own packages (Calendar\build-installer.bat,
 rem  Calendar\build-apk.bat, CalendarServer\build-installer.bat); this script
@@ -39,9 +41,11 @@ set "ROOT=%~dp0"
 
 set "NOUI="
 set "SKIPAPK="
+set "SKIPLINUX="
 for %%A in (%*) do (
     if /i "%%~A"=="-noui" set "NOUI=1"
     if /i "%%~A"=="-skipapk" set "SKIPAPK=1"
+    if /i "%%~A"=="-skiplinux" set "SKIPLINUX=1"
 )
 
 set "BUILD=%ROOT%Build"
@@ -137,20 +141,39 @@ if errorlevel 1 (
 )
 
 rem ---- 4. Linux ---------------------------------------------------------
-rem A stub: Linux packages (.deb of the planner and the server, AppImage, the
-rem Docker image of the server) are to be built in Docker - see
-rem packaging\linux in each project. Nothing to do on Windows yet.
+rem The servers, built in Docker Engine of a WSL distribution by
+rem build-linux.ps1 (PACKAGING.md). Its code 3 means there is no Docker: the
+rem step is skipped, the packages of Windows do not need it. The planner for
+rem Linux is not built yet.
 title Пакеты: Linux
 echo.
 echo ======================= [4/4] Linux =======================
-echo       Пропущено: сборка пакетов Linux ещё не настроена (будет в Docker).
-> "%BUILD%\Linux\README.txt" echo Пакеты Linux пока не собираются: сборка будет настроена в Docker.
->> "%BUILD%\Linux\README.txt" echo Подробнее - Calendar\packaging\linux и CalendarServer\packaging\linux.
+if defined SKIPLINUX (
+    set "LINUXNOTE=-skiplinux"
+    goto :linuxskip
+)
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%build-linux.ps1"
+if errorlevel 4 goto :linuxfail
+if errorlevel 3 (
+    set "LINUXNOTE=нет Docker в WSL"
+    goto :linuxskip
+)
+if errorlevel 1 goto :linuxfail
+goto :linuxdone
+:linuxfail
+set "STEP=сборки Linux"
+goto :fail
+:linuxskip
+echo       Пропущено: %LINUXNOTE%.
+> "%BUILD%\Linux\README.txt" echo Пакеты Linux в этот раз не собирались: %LINUXNOTE%.
+>> "%BUILD%\Linux\README.txt" echo Сборка - build-linux.ps1 (Docker в WSL), подробнее - PACKAGING.md.
+:linuxdone
 
 rem ---- checksums --------------------------------------------------------
 for %%P in (Windows Android) do (
     for %%F in ("%BUILD%\%%P\*") do call :checksum "%%~fF" "%%P/%%~nxF"
 )
+for %%F in ("%BUILD%\Linux\*.tar.gz") do call :checksum "%%~fF" "Linux/%%~nxF"
 
 echo.
 echo ############################################################
@@ -159,6 +182,7 @@ echo ############################################################
 for %%P in (Windows Android) do (
     for %%F in ("%BUILD%\%%P\*") do echo     Build\%%P\%%~nxF
 )
+for %%F in ("%BUILD%\Linux\*.tar.gz") do echo     Build\Linux\%%~nxF
 echo     Build\SHA256SUMS.txt
 echo.
 title Пакеты собраны

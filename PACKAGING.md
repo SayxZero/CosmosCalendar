@@ -7,7 +7,7 @@
 |---|---|---|---|
 | Windows | MSI и setup.exe (WiX 3) | MSI и setup.exe (WiX 3) | **готово** |
 | Android | APK, подписанный ключом выпуска | — | **готово** |
-| Linux | `.deb`, AppImage | `.deb`, Docker-образ | заглушка, сборка будет в Docker |
+| Linux | `.deb`, AppImage | архив `.tar.gz`, Docker-образ; сайт — так же | **сервер и сайт готовы** (Docker в WSL), планера нет |
 
 ## Одна команда
 
@@ -17,6 +17,8 @@
 .\build-packages.ps1
 .\build-packages.ps1 -Keystore D:\Keys\cosmos-release.jks   # другой ключ
 .\build-packages.ps1 -SkipApk                               # без APK: ни ключа, ни пароля
+.\build-packages.ps1 -SkipLinux                             # без Linux
+.\build-linux.ps1                                           # только Linux
 ```
 
 С `-SkipApk` (у батника — `-skipapk`) собирается всё, кроме APK: ключ выпуска
@@ -51,7 +53,9 @@ Build/
   Windows/  CosmosCalendar-<v>-x64.msi    CosmosCalendar-<v>-setup.exe
             CalendarServer-<v>-x64.msi    CalendarServer-<v>-setup.exe
   Android/  CosmosCalendar-<v>.apk
-  Linux/    README.txt — пока только записка
+  Linux/    CalendarServer-<v>-ubuntu26.04-x64.tar.gz
+            CalendarWebServer-<v>-linux-x64.tar.gz
+            tests/ — отчёты тестов из контейнеров
   SHA256SUMS.txt
 ```
 
@@ -66,7 +70,9 @@ Build/
    боевой сервер, и его exe занят);
 5. `CalendarServer\build-installer.bat -skipbuild` — раскладка Qt для
    сервера и панели, MSI и setup.exe;
-6. Linux — пропускается.
+6. `build-linux.ps1` — серверы для Linux в Docker (ниже, «Linux: Docker в
+   WSL»). Нет Docker в WSL — этап пропускается с запиской в `Build\Linux`,
+   пакеты Windows от него не зависят.
 
 Версии берутся из `project(... VERSION x.y.z)` в `CMakeLists.txt` каждого
 проекта. Планер и сервер выпускаются независимо: их совместимость держит
@@ -159,23 +165,126 @@ Build/
   убирает службу и правило брандмауэра, а базу оставляет.
 - **Подписи кода нет**: SmartScreen предупредит о неизвестном издателе.
 
+## Linux: Docker в WSL
+
+Linux-сборки серверов идут в Docker на Ubuntu 26.04 LTS, с Qt и .NET из её
+репозиториев (Qt 6.10.2, .NET SDK 10.0.114; на Windows сервер собирается с
+Qt 6.5.3, и тот же код проходит тесты на обеих). Docker — **Docker Engine внутри дистрибутива WSL 2**, без Docker
+Desktop: открытый код, никаких соглашений, нет своей виртуальной машины и
+приложения в трее, а дистрибутив тот же, что и целевая система. Из Windows
+его вызывают через `wsl.exe`: `build-linux.ps1` делает это сам, руками —
+`wsl -d Ubuntu-26.04 docker …`.
+
+### Установка (один раз)
+
+Первые три шага требуют прав администратора или создают учётную запись — их
+делает владелец машины.
+
+1. PowerShell от имени администратора — компоненты «Платформа виртуальной
+   машины» и WSL и сам WSL с GitHub (≈370 МБ), затем перезагрузка:
+
+   ```powershell
+   wsl --install --no-distribution --web-download
+   ```
+
+2. После перезагрузки (`wsl --version` показывает WSL и ядро) — дистрибутив
+   на диск с местом (≈420 МБ загрузки; образы и кэш Docker вырастают до
+   5–8 ГБ, а виртуальный диск WSL сам не сжимается):
+
+   ```powershell
+   wsl --install -d Ubuntu-26.04 --location N:\WSL\Ubuntu-26.04 --web-download
+   ```
+
+   Первый запуск спрашивает имя и пароль пользователя Linux (пароль — только
+   для `sudo` внутри) и согласие на сбор метрик (Ubuntu Insights; `n`).
+3. Docker внутри — `wsl-docker-setup.sh` зонтика (`docker.io` и
+   `docker-buildx` из архива Ubuntu, systemd, пользователь в группе
+   `docker`), затем перезапуск дистрибутива:
+
+   ```powershell
+   wsl -d Ubuntu-26.04 -u root sh /mnt/d/Prog/Calendar/wsl-docker-setup.sh 8.8.8.8 8.8.4.4
+   wsl --terminate Ubuntu-26.04
+   wsl -d Ubuntu-26.04 docker version
+   ```
+
+   Адреса после имени скрипта — DNS для дистрибутива вместо посредника
+   Windows на шлюзе WSL: с VPN на стороне Windows тот молчит, и имена не
+   находятся ни у `apt`, ни в контейнерах (`ISSUES.md`). Без VPN их можно не
+   указывать.
+
+Другое имя дистрибутива — `-Distro` у `build-linux.ps1` или переменная
+`COSMOS_WSL_DISTRO`.
+
+### Что собирается
+
+`build-linux.ps1` (UTF-8 с BOM, как `build-packages.ps1`, и с тем же видом
+этапов) кладёт всё в `Build\Linux`, журналы — в `Build\logs\linux-*.log`:
+
+1. **Сервер** — `CalendarServer/packaging/linux/Dockerfile`: сборка CMake и
+   Ninja, тесты `tst_server`, `tst_bench`, `tst_admin` (`QT_QPA_PLATFORM=offscreen`)
+   внутри сборки образа, архив `CalendarServer-<v>-ubuntu26.04-x64.tar.gz`
+   (`bin/` — сервер, бенчмарк, админ-панель; `deploy/` — служба systemd и
+   пример `server.ini`; `INSTALL.txt`) и образ `cosmos-calendar-server:<v>`.
+2. **Сайт** — `CalendarWebServer/packaging/linux/Dockerfile` с
+   `CalendarWeb/site` вторым контекстом: сборка, `dotnet test`, архив
+   `CalendarWebServer-<v>-linux-x64.tar.gz` (программа, зависимая от ASP.NET
+   Core Runtime 10, и `site/` рядом) и образ `cosmos-calendar-web:<v>`.
+3. **Проверка образов**: сервер запускается в своей сети Docker и отвечает на
+   `/api/ping` — изнутри (проверка здоровья образа) и из Windows на
+   `127.0.0.1:8767`; тесты сайта прогоняются ещё раз против него, уже с тестом
+   настоящего сервера (`WEB_TEST_SERVER`); образ сайта перед ним отвечает на
+   `127.0.0.1:8768`. Контейнеры и сеть потом удаляются; порт 8765 боевого
+   сервера не трогается.
+
+Архив выгружается из образа только после пройденных тестов: стадия `dist`
+зависит от стадии `test`. Первый прогон качает образ Ubuntu, Qt и .NET SDK
+(около 450 МБ) и идёт минут пятнадцать-двадцать; дальше слои берутся из
+кэша: правка исходников — полторы минуты с тестами, без правок — полминуты,
+и тесты тогда обычно не перезапускаются (их слой тоже в кэше). `-NoCache`
+собирает всё заново.
+
+Тестов на Linux столько же, сколько на Windows, кроме одного: проверка
+службы Windows в `tst_admin` пропускается. Итог — в строке этапа и в
+`Build\Linux\tests\` (отчёты QtTest и `dotnet test`; отчёт сайта — последнего
+прогона, против образа сервера).
+
+Каждый Dockerfile годится и сам по себе, без зонтика (команды — в его
+шапке). Образы для запуска:
+
+```bash
+docker network create cosmos
+docker run -d --name calendar-server --network cosmos -p 8765:8765 \
+    -v calendar-data:/data cosmos-calendar-server:1.3.0
+docker run -d --name calendar-web --network cosmos -p 8780:8780 \
+    -v calendar-web-data:/data cosmos-calendar-web:1.0.0 --upstream calendar-server:8765
+```
+
+На машине разработки так не запускать: порт, опубликованный в WSL, WSL
+отдаёт на `127.0.0.1` Windows, а 8765 там занят боевой службой. Для проверок
+— `-p 127.0.0.1:8767:8765` и выше, как в `build-linux.ps1`.
+
+Сервер в образе — не root (`calendar`), база — в томе `/data`; лишние
+ключи (`--no-registration`, `--trusted-proxies`) дописываются после имени
+образа. Сайт — тоже не root (`web`), его папка данных (`legal.json`, файл
+оферты) — том `/data` своего контейнера: `-v calendar-web-data:/data`.
+
 ## Что дальше
 
-### Linux (в Docker)
+### Linux
 
-Заглушки — `packaging/linux/README.md` обоих проектов и шаг 4 в
-`build-packages.bat`. Задумано:
+Сервер и сайт собираются (выше, «Linux: Docker в WSL»). Дальше:
 
-- образ сборки на Debian 12 / Ubuntu 24.04 (Linux-пакеты на Windows не
-  собрать: дистрибутива в WSL нет), который `build-packages.bat` запускает
-  через `docker run` с монтированием исходников и `Build/Linux`;
-- планер — `.deb` (CPack DEB, зависимости от системного Qt 6.4+, явно плагины
-  мультимедиа и драйвер SQLite), затем AppImage; нужны `.desktop` с
-  обработчиком `calendar-planner://`, иконки hicolor и AppStream metainfo;
-- сервер — `.deb` (`/usr/bin/calendar-server`, unit systemd с путём через
-  `configure_file`, `sysusers.d`, `tmpfiles.d`, `/etc/calendar-server/server.ini`;
-  `remove` и `purge` базу не трогают) и Docker-образ (`debian:12-slim`, не root,
-  `VOLUME /data`, `EXPOSE 8765`, проверка по `/api/ping`).
+- планер — свой `packaging/linux/Dockerfile` на той же Ubuntu 26.04: `.deb`
+  (CPack DEB, зависимости от системного Qt, явно плагины мультимедиа и
+  драйвер SQLite), затем AppImage; нужны `.desktop` с обработчиком
+  `calendar-planner://`, иконки hicolor и AppStream metainfo. Заглушка —
+  `Calendar/packaging/linux/README.md`;
+- сервер — `.deb` поверх того же Dockerfile (`/usr/bin/calendar-server`, unit
+  systemd с путём через `configure_file`, `sysusers.d`, `tmpfiles.d`,
+  `/etc/calendar-server/server.ini`; `remove` и `purge` базу не трогают);
+- сайт — `.deb` или unit systemd рядом с сервером;
+- сборка для других дистрибутивов (Debian 13, Fedora): архив сервера связан с
+  Qt той системы, на которой собран.
 
 ### Остальное, по мере надобности
 
@@ -215,3 +324,6 @@ Build/
   страницы «Сервер» (работает, адреса), «Пользователи», «Аналитика», копия и
   восстановление на тестовом аккаунте. Перезагрузка — служба поднялась сама.
   Удаление — службы и правила брандмауэра нет, папка данных осталась.
+- **Linux** — тесты и запуск образов проверяет сам `build-linux.ps1`. На
+  настоящей Ubuntu 26.04: архив сервера с пакетами из `INSTALL.txt`, служба
+  systemd, планер с этим адресом; сайт перед ним за обратным прокси.
