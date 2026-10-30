@@ -11,6 +11,7 @@
 | `CalendarServer/` | [SayxZero/CalendarServer](https://github.com/SayxZero/CalendarServer) | сервер синхронизации: аккаунты, обмен записями между устройствами, общие календари; служба на Qt 6 для Windows и Linux и админ-панель к ней |
 | `CalendarWeb/` | [SayxZero/CalendarWeb](https://github.com/SayxZero/CalendarWeb) | сайт: страница-презентация и планер в браузере для аккаунта сервера — все экраны, повторения, напоминания, общий доступ, ICS, палитры; раскладки для компьютера и телефона |
 | `CalendarWebServer/` | [SayxZero/CalendarWebServer](https://github.com/SayxZero/CalendarWebServer) | бэкенд сайта на ASP.NET Core: отдаёт сайт и передаёт его запросы серверу синхронизации |
+| `CalendarWebMCP/` | [SayxZero/CalendarWebMCP](https://github.com/SayxZero/CalendarWebMCP) | облачный режим MCP: ИИ-агент работает с аккаунтом через интернет |
 
 Планер работает и без сервера — сервер нужен только для аккаунтов,
 синхронизации между устройствами, совместного доступа к календарю и сайта.
@@ -59,6 +60,7 @@ cmake --build build/server
 
 dotnet build CalendarWebServer/CalendarWebServer.sln          # бэкенд сайта
 node --test "CalendarWeb/tests/*.test.js"                     # тесты сайта
+(cd CalendarWebMCP && npm install && npm test)                # тесты облачного MCP
 ```
 
 ## Пакеты для выпуска

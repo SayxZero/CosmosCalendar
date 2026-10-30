@@ -173,7 +173,8 @@ function Get-TestTotals {
     # tst_admin) and leave several reports; their totals add up. QtTest ends
     # with "Totals: 49 passed, 0 failed, 1 skipped"; dotnet test with
     # "Passed!  - Failed: 0, Passed: 24, ..." or, at the normal verbosity,
-    # with lines of their own: "Total tests: 24", "Passed: 23", "Skipped: 1".
+    # with lines of their own: "Total tests: 24", "Passed: 23", "Skipped: 1";
+    # node --test with "ℹ pass 16" (or "# pass 16") and "ℹ skipped 0".
     param([string[]]$Log)
     $found = $false
     $passed = 0
@@ -187,6 +188,11 @@ function Get-TestTotals {
             $passed += [int]$Matches[2]
             $skipped += [int]$Matches[3]
             $found = $true
+        } elseif ($line -match '^\S* ?pass (\d+)\s*$') {
+            $passed += [int]$Matches[1]
+            $found = $true
+        } elseif ($line -match '^\S* ?skipped (\d+)\s*$') {
+            $skipped += [int]$Matches[1]
         } elseif ($line -match '^\s*Passed:\s*(\d+)\s*$') {
             $passed += [int]$Matches[1]
             $found = $true

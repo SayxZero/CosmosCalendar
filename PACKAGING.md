@@ -55,6 +55,7 @@ Build/
   Android/  CosmosCalendar-<v>.apk
   Linux/    CalendarServer-<v>-ubuntu26.04-x64.tar.gz
             CalendarWebServer-<v>-linux-x64.tar.gz
+            CalendarWebMCP-<v>-linux-x64.tar.gz
             tests/ — отчёты тестов из контейнеров
   SHA256SUMS.txt
 ```
@@ -165,6 +166,13 @@ Build/
   убирает службу и правило брандмауэра, а базу оставляет.
 - **Подписи кода нет**: SmartScreen предупредит о неизвестном издателе.
 
+## Что лежит в установщике планера
+
+Кроме программы и Qt, `build-exe.bat` кладёт в `release\` мост MCP `CalendarPlannerMcp.exe` и инструкцию для
+агента `MCP.md` (`Calendar/docs/MCP.md`), а установщик забирает всё из этой папки через `heat`. Поэтому
+агент, которого попросили разобраться с планером, находит инструкцию в папке программы. Проверка —
+административная распаковка MSI: оба файла должны лежать рядом с `CalendarPlanner.exe`.
+
 ## Linux: Docker в WSL
 
 Linux-сборки серверов идут в Docker на Ubuntu 26.04 LTS, с Qt и .NET из её
@@ -229,11 +237,16 @@ Desktop: открытый код, никаких соглашений, нет с
    `CalendarWeb/site` вторым контекстом: сборка, `dotnet test`, архив
    `CalendarWebServer-<v>-linux-x64.tar.gz` (программа, зависимая от ASP.NET
    Core Runtime 10, и `site/` рядом) и образ `cosmos-calendar-web:<v>`.
-3. **Проверка образов**: сервер запускается в своей сети Docker и отвечает на
+3. **Облачный MCP** — `CalendarWebMCP/packaging/linux/Dockerfile` с `CalendarWeb/site`
+   вторым контекстом: `npm ci`, `node --test`, архив
+   `CalendarWebMCP-<v>-linux-x64.tar.gz` (служба с `node_modules` и `site/js`, Node.js ставится
+   из системы) и образ `cosmos-calendar-web-mcp:<v>`.
+4. **Проверка образов**: сервер запускается в своей сети Docker и отвечает на
    `/api/ping` — изнутри (проверка здоровья образа) и из Windows на
    `127.0.0.1:8767`; тесты сайта прогоняются ещё раз против него, уже с тестом
    настоящего сервера (`WEB_TEST_SERVER`); образ сайта перед ним отвечает на
-   `127.0.0.1:8768`. Контейнеры и сеть потом удаляются; порт 8765 боевого
+   `127.0.0.1:8768`, а со службой MCP за ним отдаёт описание OAuth и держит `/mcp` закрытым без
+   токена (401). Контейнеры и сеть потом удаляются; порт 8765 боевого
    сервера не трогается.
 
 Архив выгружается из образа только после пройденных тестов: стадия `dist`
@@ -282,7 +295,7 @@ docker run -d --name calendar-web --network cosmos -p 8780:8780 \
 - сервер — `.deb` поверх того же Dockerfile (`/usr/bin/calendar-server`, unit
   systemd с путём через `configure_file`, `sysusers.d`, `tmpfiles.d`,
   `/etc/calendar-server/server.ini`; `remove` и `purge` базу не трогают);
-- сайт — `.deb` или unit systemd рядом с сервером;
+- сайт и служба MCP — `.deb` или unit systemd рядом с сервером;
 - сборка для других дистрибутивов (Debian 13, Fedora): архив сервера связан с
   Qt той системы, на которой собран.
 

@@ -14,3 +14,7 @@
 	path = CalendarWebServer
 	url = https://github.com/SayxZero/CalendarWebServer.git
 	branch = master
+[submodule "CalendarWebMCP"]
+	path = CalendarWebMCP
+	url = https://github.com/SayxZero/CalendarWebMCP.git
+	branch = master

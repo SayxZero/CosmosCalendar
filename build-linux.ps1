@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    The Linux builds of both servers, in Docker on Ubuntu 26.04, with their
+    The Linux builds of the servers, in Docker on Ubuntu 26.04, with their
     tests and a check that the images run.
 
 .DESCRIPTION
@@ -10,16 +10,19 @@
 
         CalendarServer-<v>-ubuntu26.04-x64.tar.gz   server, benchmark, admin panel
         CalendarWebServer-<v>-linux-x64.tar.gz      site server with the site
+        CalendarWebMCP-<v>-linux-x64.tar.gz         cloud MCP service
         tests\                                      reports of the tests
 
     1. CalendarServer: its packaging/linux/Dockerfile builds and tests it all,
        exports the archive and makes the image of the server;
     2. CalendarWebServer: the same, with CalendarWeb/site beside it;
-    3. the check: the server image runs on a Docker network of its own and
+    3. CalendarWebMCP: the same, with the logic of the site beside it;
+    4. the check: the server image runs on a Docker network of its own and
        answers /api/ping, from Windows too (127.0.0.1:<PingPort>); the tests
        of the site server run once more against it, the one with a real
        server among them; the image of the site server in front of it answers
-       /api/ping on 127.0.0.1:<PingPort + 1>.
+       /api/ping on 127.0.0.1:<PingPort + 1> and, with the MCP image behind
+       it, keeps the door /mcp shut without a token.
 
     The images stay in Docker: cosmos-calendar-server:<v>,
     cosmos-calendar-web:<v> and cosmos-calendar-web-build:<v> (the SDK with
@@ -128,14 +131,15 @@ function Get-Page {
 # Step 3. Returns what went wrong, or nothing; $Result.Detail gets what went
 # right. The containers and the network go away whatever happened.
 function Invoke-ImageCheck {
-    param([string]$ServerImage, [string]$WebImage, [string]$WebBuildImage, [string]$Log, [hashtable]$Result)
+    param([string]$ServerImage, [string]$WebImage, [string]$WebBuildImage, [string]$McpImage, [string]$Log, [hashtable]$Result)
     $net = 'cosmos-linux-check'
     $serverName = 'cosmos-check-server'
     $webName = 'cosmos-check-web'
+    $mcpName = 'cosmos-check-mcp'
     $webPort = $PingPort + 1
     # -v: the volumes /data of the images go with the containers.
     $clean = {
-        $null = Invoke-Docker @('rm', '-f', '-v', $serverName, $webName) $Log
+        $null = Invoke-Docker @('rm', '-f', '-v', $serverName, $webName, $mcpName) $Log
         $null = Invoke-Docker @('network', 'rm', $net) $Log
     }
     # Leftovers of a run that was cut short.
@@ -175,8 +179,15 @@ function Invoke-ImageCheck {
             return 'тест сайта с настоящим сервером пропущен'
         }
 
-        $run = Invoke-Docker @('run', '-d', '--name', $webName, '--network', $net,
-            '-p', "127.0.0.1:${webPort}:8780", $WebImage, '--upstream', "${serverName}:8765") $Log
+        $run = Invoke-Docker @('run', '-d', '--name', $mcpName, '--network', $net, $McpImage,
+            '--upstream', "${serverName}:8765", '--allowed-host', $mcpName) $Log
+        if (-not $run.Ok) { return 'контейнер службы MCP не запустился' }
+
+        # A secret for these few seconds: the tokens of this run die with the container.
+        $secret = [Convert]::ToBase64String((1..36 | ForEach-Object { Get-Random -Maximum 256 }))
+        $run = Invoke-Docker @('run', '-d', '--name', $webName, '--network', $net, '-e', "Web__McpSecret=$secret",
+            '-p', "127.0.0.1:${webPort}:8780", $WebImage, '--upstream', "${serverName}:8765",
+            '--public-url', "http://127.0.0.1:$webPort", '--mcp-upstream', "${mcpName}:8790") $Log
         if (-not $run.Ok) { return 'контейнер сайта не запустился' }
         $proxied = Get-Page "http://127.0.0.1:$webPort/api/ping"
         $page = Get-Page "http://127.0.0.1:$webPort/"
@@ -186,7 +197,26 @@ function Invoke-ImageCheck {
             return "сайт в контейнере не отвечает на 127.0.0.1:$webPort"
         }
 
-        $Result.Detail = "/api/ping: сервер на :$PingPort, сайт на :$webPort; " +
+        $metadata = Get-Page "http://127.0.0.1:$webPort/.well-known/oauth-authorization-server"
+        if (-not $metadata -or $metadata -notmatch 'authorization_endpoint') {
+            return 'сайт в контейнере не отдаёт описание OAuth режима MCP'
+        }
+        $door = 0
+        try {
+            $null = Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 -Method Post -Body '{}' -ContentType 'application/json' "http://127.0.0.1:$webPort/mcp"
+        } catch {
+            if ($_.Exception.Response) { $door = [int]$_.Exception.Response.StatusCode }
+        }
+        [IO.File]::AppendAllLines($Log, [string[]]@("/mcp without a token: $door"))
+        if ($door -ne 401) { return "дверь /mcp без токена ответила $door, а не 401" }
+        $mcpHealth = (Invoke-Docker @('run', '--rm', '--network', $net, '--entrypoint', 'node', $McpImage, '-e',
+            "fetch('http://${mcpName}:8790/health').then(r=>r.text()).then(t=>{console.log(t);process.exit(t.includes('web-mcp')?0:1)}).catch(()=>process.exit(1))") $Log)
+        if (-not $mcpHealth.Ok) {
+            $null = Invoke-Docker @('logs', '--tail', '30', $mcpName) $Log
+            return 'служба MCP в контейнере не отвечает'
+        }
+
+        $Result.Detail = "/api/ping: сервер на :$PingPort, сайт на :$webPort, /mcp закрыт без токена; " +
             (Get-TestTotals (Join-Path $LinuxDir 'tests\dotnet-test.txt')).Replace('тесты:', 'тесты сайта с сервером:')
         return ''
     } finally {
@@ -199,6 +229,7 @@ function Invoke-LinuxMain {
     $server = Join-Path $Root 'CalendarServer'
     $web = Join-Path $Root 'CalendarWebServer'
     $site = Join-Path $Root 'CalendarWeb\site'
+    $mcp = Join-Path $Root 'CalendarWebMCP'
 
     Write-Host ''
     Write-Host '  Космос календарь: серверы для Linux' -ForegroundColor White
@@ -206,7 +237,7 @@ function Invoke-LinuxMain {
 
     # ---- environment ----------------------------------------------------
     $problems = @()
-    foreach ($file in "$server\packaging\linux\Dockerfile", "$web\packaging\linux\Dockerfile", "$site\index.html") {
+    foreach ($file in "$server\packaging\linux\Dockerfile", "$web\packaging\linux\Dockerfile", "$mcp\packaging\linux\Dockerfile", "$site\index.html") {
         if (-not (Test-Path $file)) { $problems += "нет $file - git submodule update --init" }
     }
     if ($problems.Count -gt 0) {
@@ -216,6 +247,7 @@ function Invoke-LinuxMain {
     }
     $serverVersion = Get-ProjectVersion "$server\CMakeLists.txt"
     $webVersion = Get-WebVersion "$web\src\CalendarWebServer\CalendarWebServer.csproj"
+    $mcpVersion = (ConvertFrom-Json ([IO.File]::ReadAllText("$mcp\package.json"))).version
     $docker = Get-DockerVersion
     if (-not $docker) {
         Write-StepLine -State fail -Title 'Проверка окружения' -Detail "нет Docker в WSL $Distro"
@@ -248,6 +280,9 @@ function Invoke-LinuxMain {
     $webArgs = @('-f', "$webContext/packaging/linux/Dockerfile", '--build-context', ('site=' + (ConvertTo-WslPath $site)))
     $webImage = "cosmos-calendar-web:$webVersion"
     $webBuildImage = "cosmos-calendar-web-build:$webVersion"
+    $mcpContext = ConvertTo-WslPath $mcp
+    $mcpArgs = @('-f', "$mcpContext/packaging/linux/Dockerfile", '--build-context', ('site=' + (ConvertTo-WslPath $site)))
+    $mcpImage = "cosmos-calendar-web-mcp:$mcpVersion"
 
     $steps = @(
         @{ Title = 'Сервер: сборка и тесты'; Key = 'linux-1-server'; Reports = 'tst_*.txt'
@@ -258,7 +293,11 @@ function Invoke-LinuxMain {
            Commands = @(
                ($buildx + $fresh + $webArgs + @('--target', 'dist', '--output', "type=local,dest=$out", $webContext)),
                ($buildx + $webArgs + @('--target', 'build', '-t', $webBuildImage, $webContext)),
-               ($buildx + $webArgs + @('--target', 'runtime', '-t', $webImage, $webContext))) }
+               ($buildx + $webArgs + @('--target', 'runtime', '-t', $webImage, $webContext))) },
+        @{ Title = 'MCP: сборка и тесты'; Key = 'linux-3-mcp'; Reports = 'node-test.txt'
+           Commands = @(
+               ($buildx + $fresh + $mcpArgs + @('--target', 'dist', '--output', "type=local,dest=$out", $mcpContext)),
+               ($buildx + $mcpArgs + @('--target', 'runtime', '-t', $mcpImage, $mcpContext))) }
     )
     foreach ($step in $steps) {
         $log = Join-Path $Logs "$($step.Key).log"
@@ -278,11 +317,11 @@ function Invoke-LinuxMain {
 
     # ---- the check of the images ---------------------------------------
     $title = 'Проверка: образы в работе'
-    $log = Join-Path $Logs 'linux-3-check.log'
+    $log = Join-Path $Logs 'linux-4-check.log'
     if ($Animate) { Write-StepLine -State run -Title $title }
     $clock = [Diagnostics.Stopwatch]::StartNew()
     $result = @{ Detail = '' }
-    $problem = Invoke-ImageCheck $serverImage $webImage $webBuildImage $log $result
+    $problem = Invoke-ImageCheck $serverImage $webImage $webBuildImage $mcpImage $log $result
     if ($problem) {
         Write-StepLine -State fail -Title $title -Elapsed $clock.Elapsed -Detail $problem
         Write-Problem @("журнал: $log")
@@ -297,7 +336,7 @@ function Invoke-LinuxMain {
     Get-ChildItem $LinuxDir -File | Sort-Object Name | ForEach-Object {
         Write-Host ('    {0,-46} {1,6:N1} МБ' -f $_.Name, ($_.Length / 1MB))
     }
-    Write-Host "  Образы Docker: $serverImage, $webImage"
+    Write-Host "  Образы Docker: $serverImage, $webImage, $mcpImage"
     Write-Host ''
     return 0
 }
