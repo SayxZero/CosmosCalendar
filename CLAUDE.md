@@ -13,7 +13,7 @@ workspace.
 |---|---|---|
 | `Calendar/` | [SayxZero/Calendar](https://github.com/SayxZero/Calendar) | планер: Qt 6 / C++17, Windows, Linux, Android |
 | `CalendarServer/` | [SayxZero/CalendarServer](https://github.com/SayxZero/CalendarServer) | сервер синхронизации (Qt 6 Core, Network, Sql; служба Windows и Linux) и его админ-панель (Qt Widgets) |
-| `CalendarWeb/` | [SayxZero/CalendarWeb](https://github.com/SayxZero/CalendarWeb) | сайт — планер в браузере: ES-модули и CSS без сборки и библиотек, тесты `node --test` |
+| `CalendarWeb/` | [SayxZero/CalendarWeb](https://github.com/SayxZero/CalendarWeb) | сайт — презентация и планер в браузере: ES-модули и CSS без сборки и библиотек, тесты `node --test` |
 | `CalendarWebServer/` | [SayxZero/CalendarWebServer](https://github.com/SayxZero/CalendarWebServer) | бэкенд сайта на ASP.NET Core (.NET 10): отдаёт сайт и передаёт его запросы серверу синхронизации по HTTP API, ключ сеанса — в HttpOnly-cookie |
 
 Сайт — ещё одно устройство аккаунта: своей базы у него и у бэкенда нет,
@@ -44,6 +44,14 @@ README: о самом проекте подробно, о соседнем — �
 `JsonIo`, `IcsIo` — в `CalendarWeb/site/js`). Правка формата записи или
 правил хранилища в планере требует той же правки на сайте; таблица
 соответствия файлов — `CalendarWeb/DesDoc.md`, раздел 2.
+
+**Напоминание: когда появится MCP для агентов — переснять ролик на сайте.**
+Сейчас ролик `ai-agent` показывает то, что есть: агент в чате составляет файл
+`.ics`, а файл импортируется на сайте. С настоящим MCP агент будет работать
+прямо в календаре, и ролик должен показывать это: заменить сцену `agent` в
+`CalendarWeb/media/scenes.mjs` и страницу `media/agent/`, поправить склейку в
+`videos.mjs` и подпись фичи в `site/index.html`. До выхода MCP работу агента в
+календаре не изображать: все примеры интерфейса на сайте настоящие.
 
 ## Репозитории и коммиты
 
@@ -147,10 +155,10 @@ WiX 3 из `%WIX%`),
   команду, а после прогона читает журнал и результаты.
 - **Задача в планере заканчивается релизными сборками**: `release/CalendarPlanner.exe`
   и подписанный APK собраны, тесты прошли (`Calendar/CLAUDE.md`, «Релизные
-  сборки»). У сервера — его 47 тестов, 18 тестов админ-панели (`tst_admin`)
+  сборки»). У сервера — его 52 теста, 18 тестов админ-панели (`tst_admin`)
   и 9 тестов бенчмарка (`tst_bench`).
-- **Задача в сайте заканчивается проверкой в браузере**: 55 тестов
-  `node --test` сайта и 24 теста бэкенда (`dotnet test`, один — с
+- **Задача в сайте заканчивается проверкой в браузере**: 59 тестов
+  `node --test` сайта и 37 тестов бэкенда (`dotnet test`, один — с
   `WEB_TEST_SERVER` тестового сервера) прошли, сайт открыт во встроенном
   браузере перед тестовым сервером (`run-server.bat -p 8766 -d <папка>` и
   бэкенд на `127.0.0.1:8780`) на ширине ПК и телефона. Дошла ли правка до

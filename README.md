@@ -9,7 +9,7 @@
 |---|---|---|
 | `Calendar/` | [SayxZero/Calendar](https://github.com/SayxZero/Calendar) | планер: события и задачи в одном окне, привычки, напоминания и будильник, виджеты Android; Qt 6 / C++17 для Windows, Linux и Android |
 | `CalendarServer/` | [SayxZero/CalendarServer](https://github.com/SayxZero/CalendarServer) | сервер синхронизации: аккаунты, обмен записями между устройствами, общие календари; служба на Qt 6 для Windows и Linux и админ-панель к ней |
-| `CalendarWeb/` | [SayxZero/CalendarWeb](https://github.com/SayxZero/CalendarWeb) | сайт: планер в браузере для аккаунта сервера — все экраны, повторения, напоминания, общий доступ, ICS, палитры; раскладки для компьютера и телефона |
+| `CalendarWeb/` | [SayxZero/CalendarWeb](https://github.com/SayxZero/CalendarWeb) | сайт: страница-презентация и планер в браузере для аккаунта сервера — все экраны, повторения, напоминания, общий доступ, ICS, палитры; раскладки для компьютера и телефона |
 | `CalendarWebServer/` | [SayxZero/CalendarWebServer](https://github.com/SayxZero/CalendarWebServer) | бэкенд сайта на ASP.NET Core: отдаёт сайт и передаёт его запросы серверу синхронизации |
 
 Планер работает и без сервера — сервер нужен только для аккаунтов,
